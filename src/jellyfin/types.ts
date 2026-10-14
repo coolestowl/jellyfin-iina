@@ -75,6 +75,7 @@ export interface PlaybackContext {
 
 export interface PlaybackHandoff extends PlaybackContext {
     url: string;
+    directMediaUrl?: boolean;
 }
 
 export interface AutoplayRequest {

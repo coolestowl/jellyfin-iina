@@ -61,6 +61,23 @@ describe("PlaybackController", () => {
         expect(harness.player.seeks).toEqual([42]);
     });
 
+    test("tracks a direct HTTP media URL as the negotiated Jellyfin session", async () => {
+        const harness = createHarness();
+        const playback = {
+            ...handoff("remote"),
+            url: "http://openlist.example.test/d/movie.mkv?sign=abc",
+            directMediaUrl: true
+        };
+
+        harness.controller.play({ playback });
+        harness.player.path = playback.url;
+        harness.controller.onFileLoaded();
+        await settle();
+
+        expect(harness.player.replacements).toEqual([playback]);
+        expect(harness.api.starts).toEqual(["session-remote"]);
+    });
+
     test("keeps title and resume metadata with each pending handoff", () => {
         const harness = createHarness();
         const first = handoff("first");

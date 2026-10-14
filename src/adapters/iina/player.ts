@@ -15,7 +15,7 @@ import {
 import { sanitizeMediaTitle } from "../../playback/title";
 import { IinaExternalSubtitles } from "./externalSubtitles";
 import { escapeMpvListItem, escapeMpvOption, mediaRequestHeaders } from "./mediaAuthentication";
-import { isSameServerUrl } from "../../jellyfin/url";
+import { isSameServerUrl, resolveDirectMediaUrl } from "../../jellyfin/url";
 
 export class IinaPlayer implements Player {
     private readonly subtitles: IinaExternalSubtitles;
@@ -140,13 +140,16 @@ function buildLoadArguments(
     mode: "replace" | "insert-next" | "append",
     title: string
 ): string[] {
-    if (!isSameServerUrl(handoff.serverUrl, handoff.url)) {
+    if (handoff.directMediaUrl && resolveDirectMediaUrl(handoff.url) !== handoff.url) {
+        throw new Error("Jellyfin remote media URL is invalid.");
+    }
+    if (!handoff.directMediaUrl && !isSameServerUrl(handoff.serverUrl, handoff.url)) {
         throw new Error("Jellyfin playback must use the configured HTTPS server.");
     }
-    const headers = mediaRequestHeaders(handoff, handoff.url);
+    const headers = handoff.directMediaUrl ? {} : mediaRequestHeaders(handoff, handoff.url);
     const headerList = Object.entries(headers)
         .map(([key, value]) => escapeMpvListItem(`${key}: ${value}`)).join(",");
-    const options = [`http-header-fields=${escapeMpvOption(headerList)}`];
+    const options = headerList ? [`http-header-fields=${escapeMpvOption(headerList)}`] : [];
     if (title) options.push(`force-media-title=${escapeMpvOption(sanitizeMediaTitle(title))}`);
     return [handoff.url, mode, "-1", options.join(",")];
 }

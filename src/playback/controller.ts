@@ -2,7 +2,7 @@ import type { PlaybackHandoff } from "../jellyfin/types";
 import type { NormalizedSegment } from "./segments";
 
 import { getActiveSegment, shouldShowSkipOverlay } from "./segments";
-import { isHttpsUrl } from "../jellyfin/url";
+import { isHttpsUrl, resolveDirectMediaUrl } from "../jellyfin/url";
 import type {
     PlaybackControllerDependencies,
     PlaybackRequest,
@@ -234,7 +234,10 @@ export class PlaybackController {
         if (!handoff?.url) {
             return null;
         }
-        if (!isHttpsUrl(handoff.url) || !isHttpsUrl(handoff.serverUrl)) {
+        const validMediaUrl = handoff.directMediaUrl
+            ? resolveDirectMediaUrl(handoff.url) === handoff.url
+            : isHttpsUrl(handoff.url);
+        if (!validMediaUrl || !isHttpsUrl(handoff.serverUrl)) {
             this.dependencies.view.showHttpsAlert();
             return null;
         }

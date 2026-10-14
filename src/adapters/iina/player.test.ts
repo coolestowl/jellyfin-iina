@@ -92,4 +92,27 @@ describe("IINA player adapter", () => {
             globalThis.iina = previousIina;
         }
     });
+
+    test("opens OpenList directly without sending Jellyfin credentials", () => {
+        const commands: { name: string; args: string[] }[] = [];
+        const previousIina = globalThis.iina;
+        globalThis.iina = { mpv: {
+            command: (name: string, args: string[]) => commands.push({ name, args })
+        } } as unknown as typeof iina;
+        try {
+            const player = new IinaPlayer({ debug: () => undefined, error: () => undefined });
+            player.loadReplacement({
+                url: "http://openlist.example.test/d/movie.mkv?sign=secret",
+                directMediaUrl: true,
+                serverUrl: "https://media.example.test/jellyfin", accessToken: "jellyfin-token",
+                deviceId: "device", userId: "user", itemId: "item", mediaSourceId: "source",
+                playSessionId: "session", runtimeTicks: 0, playMethod: "DirectPlay", externalSubtitles: []
+            }, "Movie");
+            expect(commands[0]?.args[0]).toBe("http://openlist.example.test/d/movie.mkv?sign=secret");
+            expect(commands[0]?.args[3]).toBe("force-media-title=%5%Movie");
+            expect(JSON.stringify(commands)).not.toContain("jellyfin-token");
+        } finally {
+            globalThis.iina = previousIina;
+        }
+    });
 });

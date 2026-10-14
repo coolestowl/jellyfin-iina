@@ -6,6 +6,15 @@ export function normalizeServerUrl(url: string): string {
     return url.trim().replace(/\/+$/, "");
 }
 
+/** Keep remote media query parameters intact; they may contain OpenList or cloud signatures. */
+export function resolveDirectMediaUrl(value: string): string {
+    if (value !== value.trim() || value.includes("#")) {
+        return "";
+    }
+    const url = parseHttpUrl(value, true);
+    return url ? `${url.origin}${url.path}${url.query ? `?${url.query}` : ""}` : "";
+}
+
 interface HttpsUrl {
     origin: string;
     path: string;
@@ -53,23 +62,27 @@ function parseServerUrl(url: string): HttpsUrl | null {
 }
 
 function parseHttpsUrl(url: string): HttpsUrl | null {
+    return parseHttpUrl(url, false);
+}
+
+function parseHttpUrl(url: string, allowHttp: boolean): HttpsUrl | null {
     if (hasUnsafeCharacters(url)) {
         return null;
     }
-    const match = /^https:\/\/([^/?#]+)([^?#]*)(\?[^#]*)?(#.*)?$/i.exec(url.trim());
-    if (!match) {
+    const match = /^(https?):\/\/([^/?#]+)([^?#]*)(\?[^#]*)?(#.*)?$/i.exec(url.trim());
+    if (!match || (!allowHttp && match[1].toLowerCase() !== "https")) {
         return null;
     }
-    const authority = normalizeAuthority(match[1]);
-    const path = match[2] || "/";
+    const authority = normalizeAuthority(match[2]);
+    const path = match[3] || "/";
     if (!authority || !hasSafePath(path)) {
         return null;
     }
     return {
-        origin: `https://${authority}`,
+        origin: `${match[1].toLowerCase()}://${authority}`,
         path,
-        query: (match[3] || "").slice(1),
-        hasSuffix: Boolean(match[3] || match[4])
+        query: (match[4] || "").slice(1),
+        hasSuffix: Boolean(match[4] || match[5])
     };
 }
 

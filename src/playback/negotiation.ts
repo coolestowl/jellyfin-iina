@@ -8,7 +8,7 @@ import type {
     JellyfinPlaybackInfoResponse,
     PlaybackHandoff
 } from "../jellyfin/types";
-import { normalizeServerUrl, resolveDeliveryUrl } from "../jellyfin/url";
+import { normalizeServerUrl, resolveDeliveryUrl, resolveDirectMediaUrl } from "../jellyfin/url";
 
 export interface StreamUrlOptions {
     serverUrl: string;
@@ -110,7 +110,8 @@ export function buildPlaybackHandoff(
 
     const mediaSource = selectPlayableMediaSource(playbackInfo, options.mediaSourceId);
     const mediaSourceId = mediaSource.Id || "";
-    const url = buildJellyfinStreamUrl({ ...options, mediaSourceId, playSessionId });
+    const directUrl = getDirectMediaUrl(mediaSource);
+    const url = directUrl || buildJellyfinStreamUrl({ ...options, mediaSourceId, playSessionId });
     if (!url) {
         throw new Error("Jellyfin returned incomplete playback information.");
     }
@@ -123,6 +124,7 @@ export function buildPlaybackHandoff(
 
     return {
         url,
+        directMediaUrl: Boolean(directUrl),
         serverUrl: normalizeServerUrl(options.serverUrl),
         accessToken: options.accessToken,
         deviceId: options.deviceId,
@@ -144,6 +146,15 @@ export function buildPlaybackHandoff(
         seasonId: options.seasonId,
         episodeIndex: options.episodeIndex
     };
+}
+
+function getDirectMediaUrl(mediaSource: JellyfinMediaSourceInfo): string {
+    if (mediaSource.RequiresOpening === true || mediaSource.RequiresClosing === true
+        || mediaSource.IsInfiniteStream === true || mediaSource.LiveStreamId
+        || Object.values(mediaSource.RequiredHttpHeaders || {}).some(Boolean)) {
+        return "";
+    }
+    return resolveDirectMediaUrl(mediaSource.Path || "");
 }
 
 function normalizeSubtitleStreamIndex(index: number | null | undefined): number | null | undefined {

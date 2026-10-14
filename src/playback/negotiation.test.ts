@@ -140,6 +140,12 @@ describe("Jellyfin playback negotiation", () => {
                 { Container: "", Type: "Audio" }
             ]
         });
+        expect(IINA_DEVICE_PROFILE.SubtitleProfiles).toContainEqual({
+            Format: "pgssub", Method: "Embed"
+        });
+        expect(IINA_DEVICE_PROFILE.SubtitleProfiles).toContainEqual({
+            Format: "ass", Method: "Embed"
+        });
     });
 
     test("skips sources requiring remuxing and fails clearly when they are selected", () => {
@@ -211,6 +217,52 @@ describe("Jellyfin playback negotiation", () => {
         expect(handoff.externalSubtitles[0]?.url).toBe(
             "https://media.example.test/jellyfin/Videos/item-id/Subtitles/4/0/Stream.srt"
         );
+    });
+
+    test("opens a remote STRM source directly while preserving its signed query", () => {
+        const handoff = buildPlaybackHandoff({
+            PlaySessionId: "session-id",
+            MediaSources: [{
+                Id: "source-id", SupportsDirectPlay: true,
+                Path: "https://openlist.example.test/d/movie.mkv?sign=abc%2Fdef&expires=123"
+            }]
+        }, baseOptions);
+
+        expect(handoff.url).toBe("https://openlist.example.test/d/movie.mkv?sign=abc%2Fdef&expires=123");
+        expect(handoff.directMediaUrl).toBe(true);
+        expect(handoff.playMethod).toBe("DirectPlay");
+        expect(handoff.playSessionId).toBe("session-id");
+    });
+
+    test("uses Jellyfin's static stream for local media paths", () => {
+        const handoff = buildPlaybackHandoff({
+            PlaySessionId: "session-id",
+            MediaSources: [{ Id: "source-id", SupportsDirectPlay: true, Path: "/media/movie.mkv" }]
+        }, baseOptions);
+
+        expect(handoff.directMediaUrl).toBe(false);
+        expect(handoff.url).toContain("/Videos/item-id/stream?Static=true");
+    });
+
+    test("keeps server managed HTTP sources on the Jellyfin stream route", () => {
+        for (const source of [
+            { RequiresOpening: true },
+            { RequiresClosing: true },
+            { IsInfiniteStream: true },
+            { LiveStreamId: "live-stream" },
+            { RequiredHttpHeaders: { "User-Agent": "source-specific-agent" } }
+        ]) {
+            const handoff = buildPlaybackHandoff({
+                PlaySessionId: "session-id",
+                MediaSources: [{
+                    Id: "source-id", SupportsDirectPlay: true,
+                    Path: "http://127.0.0.1:8096/LiveTv/stream.ts",
+                    ...source
+                }]
+            }, baseOptions);
+            expect(handoff.directMediaUrl).toBe(false);
+            expect(handoff.url).toContain("/Videos/item-id/stream?Static=true");
+        }
     });
 });
 

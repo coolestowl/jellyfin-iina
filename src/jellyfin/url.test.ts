@@ -1,10 +1,21 @@
 import { describe, expect, test } from "bun:test";
 
-import { isHttpsUrl, isSameServerUrl, normalizeServerUrl, resolveDeliveryUrl } from "./url";
+import { isHttpsUrl, isSameServerUrl, normalizeServerUrl, resolveDeliveryUrl, resolveDirectMediaUrl } from "./url";
 
 const serverUrl = "https://media.example.test/jellyfin/";
 
 describe("Jellyfin delivery URLs", () => {
+    test("preserves remote media signatures and rejects non-HTTP paths or credentials", () => {
+        expect(resolveDirectMediaUrl("http://openlist.example.test/d/movie.mkv?sign=abc%2Fdef"))
+            .toBe("http://openlist.example.test/d/movie.mkv?sign=abc%2Fdef");
+        for (const path of [
+            "/media/movie.mkv", "file:///media/movie.mkv", "https://user:pass@openlist.example.test/d/movie.mkv",
+            "https://openlist.example.test\\@other.example.test/d/movie.mkv",
+            "https://openlist.example.test/d/movie.mkv#fragment"
+        ]) {
+            expect(resolveDirectMediaUrl(path)).toBe("");
+        }
+    });
     test("resolves relative paths without losing or duplicating the Base URL", () => {
         for (const path of ["/Videos/item/stream", "Videos/item/stream", "/jellyfin/Videos/item/stream"]) {
             expect(resolveDeliveryUrl(serverUrl, path)).toBe(

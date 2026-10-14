@@ -204,6 +204,13 @@
   function normalizeServerUrl(url) {
     return url.trim().replace(/\/+$/, "");
   }
+  function resolveDirectMediaUrl(value) {
+    if (value !== value.trim() || value.includes("#")) {
+      return "";
+    }
+    const url = parseHttpUrl(value, true);
+    return url ? `${url.origin}${url.path}${url.query ? `?${url.query}` : ""}` : "";
+  }
   function resolveDeliveryUrl(serverUrl, deliveryUrl) {
     const server = parseServerUrl(serverUrl);
     if (!server || hasUnsafeCharacters(deliveryUrl)) {
@@ -233,23 +240,26 @@
     return { ...parsed, path: parsed.path.replace(/\/+$/, "") };
   }
   function parseHttpsUrl(url) {
+    return parseHttpUrl(url, false);
+  }
+  function parseHttpUrl(url, allowHttp) {
     if (hasUnsafeCharacters(url)) {
       return null;
     }
-    const match = /^https:\/\/([^/?#]+)([^?#]*)(\?[^#]*)?(#.*)?$/i.exec(url.trim());
-    if (!match) {
+    const match = /^(https?):\/\/([^/?#]+)([^?#]*)(\?[^#]*)?(#.*)?$/i.exec(url.trim());
+    if (!match || !allowHttp && match[1].toLowerCase() !== "https") {
       return null;
     }
-    const authority = normalizeAuthority(match[1]);
-    const path = match[2] || "/";
+    const authority = normalizeAuthority(match[2]);
+    const path = match[3] || "/";
     if (!authority || !hasSafePath(path)) {
       return null;
     }
     return {
-      origin: `https://${authority}`,
+      origin: `${match[1].toLowerCase()}://${authority}`,
       path,
-      query: (match[3] || "").slice(1),
-      hasSuffix: Boolean(match[3] || match[4])
+      query: (match[4] || "").slice(1),
+      hasSuffix: Boolean(match[4] || match[5])
     };
   }
   function normalizeAuthority(authority) {
@@ -538,12 +548,15 @@
     }
   }
   function buildLoadArguments(handoff, mode, title) {
-    if (!isSameServerUrl(handoff.serverUrl, handoff.url)) {
+    if (handoff.directMediaUrl && resolveDirectMediaUrl(handoff.url) !== handoff.url) {
+      throw new Error("Jellyfin remote media URL is invalid.");
+    }
+    if (!handoff.directMediaUrl && !isSameServerUrl(handoff.serverUrl, handoff.url)) {
       throw new Error("Jellyfin playback must use the configured HTTPS server.");
     }
-    const headers = mediaRequestHeaders(handoff, handoff.url);
+    const headers = handoff.directMediaUrl ? {} : mediaRequestHeaders(handoff, handoff.url);
     const headerList = Object.entries(headers).map(([key, value]) => escapeMpvListItem(`${key}: ${value}`)).join(",");
-    const options = [`http-header-fields=${escapeMpvOption(headerList)}`];
+    const options = headerList ? [`http-header-fields=${escapeMpvOption(headerList)}`] : [];
     if (title)
       options.push(`force-media-title=${escapeMpvOption(sanitizeMediaTitle(title))}`);
     return [handoff.url, mode, "-1", options.join(",")];
@@ -773,7 +786,8 @@
       if (!handoff?.url) {
         return null;
       }
-      if (!isHttpsUrl(handoff.url) || !isHttpsUrl(handoff.serverUrl)) {
+      const validMediaUrl = handoff.directMediaUrl ? resolveDirectMediaUrl(handoff.url) === handoff.url : isHttpsUrl(handoff.url);
+      if (!validMediaUrl || !isHttpsUrl(handoff.serverUrl)) {
         this.dependencies.view.showHttpsAlert();
         return null;
       }
@@ -1379,7 +1393,16 @@
       { Format: "srt", Method: "External" },
       { Format: "ass", Method: "External" },
       { Format: "ssa", Method: "External" },
-      { Format: "vtt", Method: "External" }
+      { Format: "vtt", Method: "External" },
+      { Format: "srt", Method: "Embed" },
+      { Format: "subrip", Method: "Embed" },
+      { Format: "ass", Method: "Embed" },
+      { Format: "ssa", Method: "Embed" },
+      { Format: "webvtt", Method: "Embed" },
+      { Format: "mov_text", Method: "Embed" },
+      { Format: "pgssub", Method: "Embed" },
+      { Format: "dvdsub", Method: "Embed" },
+      { Format: "dvbsub", Method: "Embed" }
     ]
   };
 
@@ -1435,7 +1458,8 @@
     }
     const mediaSource = selectPlayableMediaSource(playbackInfo, options.mediaSourceId);
     const mediaSourceId = mediaSource.Id || "";
-    const url = buildJellyfinStreamUrl({ ...options, mediaSourceId, playSessionId });
+    const directUrl = getDirectMediaUrl(mediaSource);
+    const url = directUrl || buildJellyfinStreamUrl({ ...options, mediaSourceId, playSessionId });
     if (!url) {
       throw new Error("Jellyfin returned incomplete playback information.");
     }
@@ -1443,6 +1467,7 @@
     const subtitleStreamIndex = normalizeSubtitleStreamIndex(options.subtitleStreamIndex === undefined ? mediaSource.DefaultSubtitleStreamIndex : options.subtitleStreamIndex);
     return {
       url,
+      directMediaUrl: Boolean(directUrl),
       serverUrl: normalizeServerUrl(options.serverUrl),
       accessToken: options.accessToken,
       deviceId: options.deviceId,
@@ -1459,6 +1484,12 @@
       seasonId: options.seasonId,
       episodeIndex: options.episodeIndex
     };
+  }
+  function getDirectMediaUrl(mediaSource) {
+    if (mediaSource.RequiresOpening === true || mediaSource.RequiresClosing === true || mediaSource.IsInfiniteStream === true || mediaSource.LiveStreamId || Object.values(mediaSource.RequiredHttpHeaders || {}).some(Boolean)) {
+      return "";
+    }
+    return resolveDirectMediaUrl(mediaSource.Path || "");
   }
   function normalizeSubtitleStreamIndex(index) {
     return index === -1 ? null : index;
